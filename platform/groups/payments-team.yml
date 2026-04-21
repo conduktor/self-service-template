@@ -1,0 +1,20 @@
+---
+apiVersion: v2
+kind: Group
+metadata:
+  name: payments-owners
+spec:
+  displayName: Payments
+  description: Group for the Payments owners
+  externalGroups:
+    - payments-owners
+---
+apiVersion: v2
+kind: Group
+metadata:
+  name: payments-team
+spec:
+  displayName: Payments
+  description: Group for the Payments developers
+  externalGroups:
+    - payments-team

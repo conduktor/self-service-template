@@ -1,0 +1,25 @@
+apiVersion: self-serve/v1
+kind: ApplicationInstance
+metadata:
+  application: payments
+  name: payments-dev
+spec:
+  cluster: "kafka-dev" # Replace with your Console cluster name
+  serviceAccount: "sa-payments-dev" # Unique per cluster
+  policyRef:
+    - topic-naming
+    - topic-labels
+    - topic-rules-dev
+    - subject-rules
+    - appgroup-restrictions
+  defaultCatalogVisibility: PUBLIC
+  resources:
+    - type: TOPIC
+      patternType: PREFIXED
+      name: "payments."
+    - type: CONSUMER_GROUP
+      patternType: PREFIXED
+      name: "payments."
+    - type: SUBJECT
+      patternType: PREFIXED
+      name: "payments."

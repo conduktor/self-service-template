@@ -1,0 +1,23 @@
+apiVersion: self-serve/v1
+kind: ApplicationGroup
+metadata:
+  application: payments
+  name: payments-developers
+spec:
+  displayName: "Payments Developers"
+  description: "Full access to payments dev resources"
+  members: [] # Use externalGroups for IdP-managed membership
+  externalGroups:
+    - payments-team
+  permissions:
+    - appInstance: payments-dev
+      resourceType: TOPIC
+      patternType: LITERAL
+      name: "*"
+      permissions:
+        - topicViewConfig
+        - topicConsume
+        - topicProduce
+        - topicEditConfig
+        - topicCreate
+        - topicDelete

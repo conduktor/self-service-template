@@ -1,0 +1,10 @@
+---
+apiVersion: v2
+kind: Group
+metadata:
+  name: support-team
+spec:
+  displayName: Support
+  description: Group for the Support team
+  externalGroups:
+    - support-team

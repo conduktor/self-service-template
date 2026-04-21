@@ -1,0 +1,16 @@
+# Uncomment and modify to grant another application instance access to your topics.
+#
+# apiVersion: self-serve/v1
+# kind: ApplicationInstancePermission
+# metadata:
+#   application: payments
+#   appInstance: payments-dev
+#   name: allow-analytics-read
+# spec:
+#   resource:
+#     type: TOPIC
+#     name: "payments.transactions"
+#     patternType: LITERAL
+#   serviceAccountPermission: READ
+#   userPermission: NONE
+#   grantedTo: "analytics-dev"  # The other team's ApplicationInstance name

@@ -1,0 +1,41 @@
+---
+apiVersion: console/v2
+kind: KafkaCluster
+metadata:
+  name: kafka-dev
+spec:
+  displayName: "Dev kafka cluster"
+  icon: "kafka"
+  color: "#000000"
+  bootstrapServers: ${KAFKA_BOOTSTRAP_SERVERS}
+  ignoreUntrustedCertificate: false
+  properties:
+    # example credentials: org.apache.kafka.common.security.plain.PlainLoginModule required username="admin" password="admin-secret";
+    sasl.jaas.config: ${KAFKA_CREDENTIALS}
+    security.protocol: SASL_SSL
+    sasl.mechanism: PLAIN
+  schemaRegistry:
+    type: "ConfluentLike"
+    url: http://localhost:8080
+    security:
+      type: BasicAuth
+      username: ${SR_USER}
+      password: ${SR_PASSWORD}
+    ignoreUntrustedCertificate: false
+---
+apiVersion: console/v2
+kind: KafkaConnectCluster
+metadata:
+  cluster: kafka-dev
+  name: connect-dev
+spec:
+  displayName: "Dev Kafka Connect Cluster"
+  urls: ${KAFKA_CONNECT_URL}
+  headers:
+    X-PROJECT-HEADER: value
+    AnotherHeader: test
+  ignoreUntrustedCertificate: false
+  security:
+    type: "BasicAuth"
+    username: ${KAFKA_CONNECT_USERNAME}
+    password: ${KAFKA_CONNECT_PASSWORD}

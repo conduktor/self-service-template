@@ -1,0 +1,43 @@
+name: Apply Platform Resources
+on:
+  push:
+    branches: [main]
+    paths: ['platform/**']
+    paths-ignore: ['platform/clusters/**']
+  pull_request:
+    paths: ['platform/**']
+    paths-ignore: ['platform/clusters/**']
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  apply-platform:
+    runs-on: ubuntu-latest
+    environment: platform
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: us-east-1
+
+      - name: Install Conduktor CLI
+        run: |
+          curl -sL https://github.com/conduktor/ctl/releases/latest/download/conduktor-linux-amd64 -o conduktor
+          chmod +x conduktor
+          sudo mv conduktor /usr/local/bin/
+
+      - name: ${{ github.event_name == 'pull_request' && 'Plan' || 'Apply' }} platform resources
+        run: |
+          conduktor apply \
+            -f platform/ -r \
+            --parallelism 5 \
+            --enable-state \
+            ${{ github.event_name == 'pull_request' && '--dry-run' || '' }}
+        env:
+          CDK_API_KEY: ${{ secrets.CDK_API_KEY }}
+          CDK_BASE_URL: ${{ vars.CDK_BASE_URL }}
+          CDK_STATE_REMOTE_URI: ${{ vars.CDK_STATE_REMOTE_URI }}

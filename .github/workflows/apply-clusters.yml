@@ -1,0 +1,94 @@
+name: Apply Cluster Resources
+on:
+  push:
+    branches: [main]
+    paths: ['platform/clusters/**']
+  pull_request:
+    paths: ['platform/clusters/**']
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  detect:
+    runs-on: ubuntu-latest
+    outputs:
+      env: ${{ steps.find.outputs.env }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - id: find
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            BASE=${{ github.event.pull_request.base.sha }}
+            HEAD=${{ github.event.pull_request.head.sha }}
+          else
+            BASE=${{ github.event.before }}
+            HEAD=${{ github.sha }}
+          fi
+
+          TARGETS=$(git diff --name-only "$BASE" "$HEAD" -- platform/clusters/ \
+            | awk -F'/' 'NF>=3 {print $3}' \
+            | sort -u)
+
+          if [ -z "$TARGETS" ]; then
+            echo "::error::No valid env changes detected under platform/clusters/"
+            exit 1
+          fi
+
+          COUNT=$(echo "$TARGETS" | wc -l)
+          if [ "$COUNT" -ne 1 ]; then
+            echo "::error::Changes must be scoped to a single env folder. Found: $TARGETS"
+            exit 1
+          fi
+
+          ENV=$TARGETS
+
+          VALID_ENVS="dev prod"
+          if ! echo "$VALID_ENVS" | grep -qw "$ENV"; then
+            echo "::error::Unknown environment '$ENV'. Must be one of: $VALID_ENVS"
+            exit 1
+          fi
+
+          echo "env=$ENV" >> "$GITHUB_OUTPUT"
+          echo "Detected target: $ENV"
+
+  apply:
+    needs: detect
+    runs-on: ubuntu-latest
+    environment: kafka-${{ needs.detect.outputs.env }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: us-east-1
+
+      - name: Install Conduktor CLI
+        run: |
+          curl -sL https://github.com/conduktor/ctl/releases/latest/download/conduktor-linux-amd64 -o conduktor
+          chmod +x conduktor
+          sudo mv conduktor /usr/local/bin/
+
+      - name: ${{ github.event_name == 'pull_request' && 'Plan' || 'Apply' }} cluster resources
+        run: |
+          conduktor apply \
+            -f "platform/clusters/${{ needs.detect.outputs.env }}" -r \
+            --parallelism 5 \
+            --enable-state \
+            ${{ github.event_name == 'pull_request' && '--dry-run' || '' }}
+        env:
+          CDK_API_KEY: ${{ secrets.CDK_API_KEY }}
+          CDK_BASE_URL: ${{ vars.CDK_BASE_URL }}
+          CDK_STATE_REMOTE_URI: ${{ vars.CDK_STATE_REMOTE_URI }}
+          KAFKA_BOOTSTRAP_SERVERS: ${{ secrets.KAFKA_BOOTSTRAP_SERVERS }}
+          KAFKA_CREDENTIALS: ${{ secrets.KAFKA_CREDENTIALS }}
+          SR_USER: ${{ secrets.SR_USER }}
+          SR_PASSWORD: ${{ secrets.SR_PASSWORD }}
+          KAFKA_CONNECT_URL: ${{ secrets.KAFKA_CONNECT_URL }}
+          KAFKA_CONNECT_USERNAME: ${{ secrets.KAFKA_CONNECT_USERNAME }}
+          KAFKA_CONNECT_PASSWORD: ${{ secrets.KAFKA_CONNECT_PASSWORD }}

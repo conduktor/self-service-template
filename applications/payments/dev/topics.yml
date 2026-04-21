@@ -1,0 +1,16 @@
+apiVersion: kafka/v2
+kind: Topic
+metadata:
+  cluster: "kafka-dev" # Must match the ApplicationInstance cluster
+  name: payments.transactions
+  labels:
+    env: dev
+    business-unit: finance
+    confidentiality: restricted
+    team: payments-team
+spec:
+  replicationFactor: 1
+  partitions: 3
+  configs:
+    cleanup.policy: delete
+    retention.ms: "86400000" # 1 day

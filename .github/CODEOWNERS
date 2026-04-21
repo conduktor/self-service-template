@@ -1,0 +1,5 @@
+# Default: platform team owns everything
+*                                  @org/platform-team
+
+# Application teams own their folders (last match wins)
+/applications/payments/            @org/payments-team @org/platform-team

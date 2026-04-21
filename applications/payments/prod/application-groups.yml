@@ -1,0 +1,21 @@
+# Grant the support team permission to read prod data in the UI
+---
+apiVersion: self-serve/v1
+kind: ApplicationGroup
+metadata:
+  application: payments
+  name: payments-prod-readers
+spec:
+  displayName: "Payments Prod Readers"
+  description: "Read-only access to payments production resources"
+  members: [] # Use externalGroups for IdP-managed membership
+  externalGroups:
+    - support-team # Console Group technical-id
+  permissions:
+    - appInstance: payments-prod
+      resourceType: TOPIC
+      patternType: LITERAL
+      name: "*"
+      permissions:
+        - topicViewConfig
+        - topicConsume

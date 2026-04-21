@@ -1,0 +1,8 @@
+apiVersion: self-serve/v1
+kind: Application
+metadata:
+  name: payments
+spec:
+  title: "Payments"
+  description: "Payment processing service"
+  owner: "payments-team"  # Console Group technical-id
