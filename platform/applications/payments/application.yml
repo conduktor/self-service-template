@@ -5,4 +5,4 @@ metadata:
 spec:
   title: "Payments"
   description: "Payment processing service"
-  owner: "payments-team"  # Console Group technical-id
+  owner: "payments-owners" # Console Group technical-id

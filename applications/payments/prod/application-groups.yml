@@ -7,10 +7,10 @@ metadata:
   name: payments-prod-readers
 spec:
   displayName: "Payments Prod Readers"
-  description: "Read-only access to payments production resources"
+  description: "Read-only access to payments production topics"
   members: [] # Use externalGroups for IdP-managed membership
   externalGroups:
-    - support-team # Console Group technical-id
+    - support-team
   permissions:
     - appInstance: payments-prod
       resourceType: TOPIC

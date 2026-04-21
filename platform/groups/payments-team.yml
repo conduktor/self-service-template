@@ -1,5 +1,5 @@
 ---
-apiVersion: v2
+apiVersion: iam/v2
 kind: Group
 metadata:
   name: payments-owners
@@ -9,12 +9,12 @@ spec:
   externalGroups:
     - payments-owners
 ---
-apiVersion: v2
+apiVersion: iam/v2
 kind: Group
 metadata:
-  name: payments-team
+  name: payments-devs
 spec:
   displayName: Payments
   description: Group for the Payments developers
   externalGroups:
-    - payments-team
+    - payments-devs

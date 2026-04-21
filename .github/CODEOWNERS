@@ -2,4 +2,4 @@
 *                                  @org/platform-team
 
 # Application teams own their folders (last match wins)
-/applications/payments/            @org/payments-team @org/platform-team
+/applications/payments/            @org/payments-owners @org/platform-team

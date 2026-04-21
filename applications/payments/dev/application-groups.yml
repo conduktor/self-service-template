@@ -2,13 +2,13 @@ apiVersion: self-serve/v1
 kind: ApplicationGroup
 metadata:
   application: payments
-  name: payments-developers
+  name: payments-dev-ui-permissions
 spec:
   displayName: "Payments Developers"
-  description: "Full access to payments dev resources"
+  description: "Payments developrs get full access to payments resources in dev environment"
   members: [] # Use externalGroups for IdP-managed membership
   externalGroups:
-    - payments-team
+    - payments-devs
   permissions:
     - appInstance: payments-dev
       resourceType: TOPIC
