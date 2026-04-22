@@ -4,7 +4,7 @@ metadata:
   cluster: "my-kafka-cluster"  # Must match the ApplicationInstance cluster
   name: payments.transactions
   labels:
-    env: prod
+    instance: prod
     business-unit: finance
     confidentiality: restricted
     team: payments-team

@@ -14,7 +14,7 @@ jobs:
   detect:
     runs-on: ubuntu-latest
     outputs:
-      env: ${{ steps.find.outputs.env }}
+      instance: ${{ steps.find.outputs.instance }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -35,31 +35,31 @@ jobs:
             | sort -u)
 
           if [ -z "$TARGETS" ]; then
-            echo "::error::No valid env changes detected under platform/clusters/"
+            echo "::error::No valid instance changes detected under platform/clusters/"
             exit 1
           fi
 
           COUNT=$(echo "$TARGETS" | wc -l)
           if [ "$COUNT" -ne 1 ]; then
-            echo "::error::Changes must be scoped to a single env folder. Found: $TARGETS"
+            echo "::error::Changes must be scoped to a single instance folder. Found: $TARGETS"
             exit 1
           fi
 
-          ENV=$TARGETS
+          INSTANCE=$TARGETS
 
-          VALID_ENVS="dev prod"
-          if ! echo "$VALID_ENVS" | grep -qw "$ENV"; then
-            echo "::error::Unknown environment '$ENV'. Must be one of: $VALID_ENVS"
+          VALID_INSTANCES="dev prod"
+          if ! echo "$VALID_INSTANCES" | grep -qw "$INSTANCE"; then
+            echo "::error::Unknown instance '$INSTANCE'. Must be one of: $VALID_INSTANCES"
             exit 1
           fi
 
-          echo "env=$ENV" >> "$GITHUB_OUTPUT"
-          echo "Detected target: $ENV"
+          echo "instance=$INSTANCE" >> "$GITHUB_OUTPUT"
+          echo "Detected target: $INSTANCE"
 
   apply:
     needs: detect
     runs-on: ubuntu-latest
-    environment: kafka-${{ needs.detect.outputs.env }}
+    environment: kafka-${{ needs.detect.outputs.instance }}
     steps:
       - uses: actions/checkout@v4
 
@@ -77,7 +77,7 @@ jobs:
       - name: ${{ github.event_name == 'pull_request' && 'Plan' || 'Apply' }} cluster resources
         run: |
           conduktor apply \
-            -f "platform/clusters/${{ needs.detect.outputs.env }}" -r \
+            -f "platform/clusters/${{ needs.detect.outputs.instance }}" -r \
             --parallelism 5 \
             --enable-state \
             ${{ github.event_name == 'pull_request' && '--dry-run' || '' }}

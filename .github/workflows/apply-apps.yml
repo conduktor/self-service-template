@@ -15,7 +15,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       app: ${{ steps.find.outputs.app }}
-      env: ${{ steps.find.outputs.env }}
+      instance: ${{ steps.find.outputs.instance }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -36,33 +36,33 @@ jobs:
             | sort -u)
 
           if [ -z "$TARGETS" ]; then
-            echo "::error::No valid app/env changes detected under applications/"
+            echo "::error::No valid app/instance changes detected under applications/"
             exit 1
           fi
 
           COUNT=$(echo "$TARGETS" | wc -l)
           if [ "$COUNT" -ne 1 ]; then
-            echo "::error::Changes must be scoped to a single app/env folder. Found: $TARGETS"
+            echo "::error::Changes must be scoped to a single app/instance folder. Found: $TARGETS"
             exit 1
           fi
 
           APP=$(echo "$TARGETS" | cut -d/ -f1)
-          ENV=$(echo "$TARGETS" | cut -d/ -f2)
+          INSTANCE=$(echo "$TARGETS" | cut -d/ -f2)
 
-          VALID_ENVS="dev stag prod"
-          if ! echo "$VALID_ENVS" | grep -qw "$ENV"; then
-            echo "::error::Unknown environment '$ENV'. Must be one of: $VALID_ENVS"
+          VALID_INSTANCES="dev stag prod"
+          if ! echo "$VALID_INSTANCES" | grep -qw "$INSTANCE"; then
+            echo "::error::Unknown instance '$INSTANCE'. Must be one of: $VALID_INSTANCES"
             exit 1
           fi
 
           echo "app=$APP" >> "$GITHUB_OUTPUT"
-          echo "env=$ENV" >> "$GITHUB_OUTPUT"
-          echo "Detected target: $APP/$ENV"
+          echo "instance=$INSTANCE" >> "$GITHUB_OUTPUT"
+          echo "Detected target: $APP/$INSTANCE"
 
   apply:
     needs: detect
     runs-on: ubuntu-latest
-    environment: ${{ needs.detect.outputs.app }}-${{ needs.detect.outputs.env }}
+    environment: ${{ needs.detect.outputs.app }}-${{ needs.detect.outputs.instance }}
     steps:
       - uses: actions/checkout@v4
 
@@ -80,7 +80,7 @@ jobs:
       - name: ${{ github.event_name == 'pull_request' && 'Plan' || 'Apply' }} resources
         run: |
           conduktor apply \
-            -f "applications/${{ needs.detect.outputs.app }}/${{ needs.detect.outputs.env }}" \
+            -f "applications/${{ needs.detect.outputs.app }}/${{ needs.detect.outputs.instance }}" \
             --parallelism 5 \
             --enable-state \
             ${{ github.event_name == 'pull_request' && '--dry-run' || '' }}
