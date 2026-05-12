@@ -2,10 +2,6 @@
 
 Federated Kafka resource management via GitOps. The **platform team** defines boundaries (applications, instances, policies); **application teams** manage their own Kafka resources within those boundaries through pull requests.
 
-## Repository Layout Options
-
-This repo co-locates platform resources and application resources in a single repository. That's one of a few reasonable layouts -- a monorepo makes policy enforcement, CODEOWNERS-based review, and cross-team changes easy to see in one place. Other teams split platform and application resources across separate repositories along organizational boundaries. The resource model and workflows work the same way either way; splitting repos just means duplicating the CI/CD wiring on the application side.
-
 ## Key Concepts
 
 Before diving in, understand the Conduktor self-service resource hierarchy:
@@ -176,12 +172,18 @@ No workflow changes needed -- the detection logic handles new applications autom
 3. Set up the `platform`, `kafka-<instance>`, and `<app>-<instance>` GitHub Environments with the required secrets and variables (see Platform bootstrap and Onboard a new application).
 4. Push to GitHub and enable branch protection on `main` with required reviews and CODEOWNERS enforcement.
 
+## Repository Layout Options
+
+This repo co-locates platform resources and application resources in a single repository. That's one of a few reasonable layouts -- a monorepo makes policy enforcement, CODEOWNERS-based review, and cross-team changes easy to see in one place. Other teams split platform and application resources across separate repositories along organizational boundaries. The resource model and workflows work the same way either way; splitting repos just means duplicating the CI/CD wiring on the application side.
+
 ## Note on Deployment
 
-This repo only governs objects within the Conduktor [Console](https://docs.conduktor.io/guide/reference/console-reference), [Self-Service](https://docs.conduktor.io/guide/reference/self-service-reference), and [Kafka Resource](https://docs.conduktor.io/guide/reference/kafka-reference) APIs. This repo does not concern itself with configuration and deployment of Conduktor Console itself.
+This repo only governs objects within the Conduktor [Console](https://docs.conduktor.io/guide/reference/console-reference), [Self-Service](https://docs.conduktor.io/guide/reference/self-service-reference), and [Kafka Resource](https://docs.conduktor.io/guide/reference/kafka-reference) APIs using the `conduktor` CLI. This repo does not concern itself with configuration and deployment of Conduktor Console itself.
 
 Also note that for the sake of simplicity, this repo doesn't currently include objects from the [Conduktor Gateway API](https://docs.conduktor.io/guide/reference/gateway-reference) but can be easily extended to do so.
 
 As an alternative approach to implement Conduktor API resource gitops, you can use the [Conduktor Provisioner helm chart](https://github.com/conduktor/conduktor-public-charts/tree/main/charts/provisioner) to provision API object resources from within your Kubernetes cluster. This helm chart is sometimes helpful if networking restrictions prevent the CI runners from reaching the API endpoint directly. It runs the Conduktor CLI from a pod in Kubernetes.
+
+Another alternative approach to implement Conduktor API resource gitops is to use the [Conduktor Terraform Provider](https://registry.terraform.io/providers/conduktor/conduktor/latest/docs) to provision API object resources via Terraform. This will require some changes to the GitHub Actions workflows since terraform has its own state management.
 
 To actually configure and deploy Conduktor Console itself, we recommend the [official Conduktor Console Kubernetes helm chart](https://github.com/conduktor/conduktor-public-charts/tree/main/charts/console). See the official [Conduktor Reference Architecture Console helm values](https://github.com/conduktor/conduktor-reference-architecture/blob/main/local-stack/console-values.yaml) for a production-ready Console deployment configuration example.
