@@ -13,7 +13,7 @@ spec:
     - appInstance: payments-dev
       resourceType: TOPIC
       patternType: LITERAL
-      name: "*"
+      name: "*" # wildcard '*' is of course scoped to what this application instance owns
       permissions:
         - topicViewConfig
         - topicConsume
