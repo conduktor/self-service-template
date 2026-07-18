@@ -17,7 +17,7 @@ Before diving in, understand the Conduktor self-service resource hierarchy:
 
 Platform team resources (`KafkaCluster`, `KafkaConnectCluster`, `Group`, `Application`, `ApplicationInstance`, `ResourcePolicy`) are managed exclusively by the platform team. Application teams manage their own Kafka resources within the boundaries the platform team has defined.
 
-> **Note on terminology:** `Group` (kind `Group`, `apiVersion: v2`) and `ApplicationGroup` (kind `ApplicationGroup`, `apiVersion: self-serve/v1`) are distinct resource kinds. A `Group` is a platform-managed Console Group that mirrors an external IdP group; an `ApplicationGroup` is an app-managed permission set that grants Console UI access to members of a `Group` within a specific Application.
+> **Note on terminology:** `Group` (kind `Group`, `apiVersion: v2`) and `ApplicationGroup` (kind `ApplicationGroup`, `apiVersion: self-serve/v1`) are distinct resource kinds. A `Group` is a platform-managed resource that grants UI permissions to a set of users; an `ApplicationGroup` is an app-managed resource that grants UI permissions to a set of users scoped within the application.
 
 All resources follow a Kubernetes-style declarative format:
 
