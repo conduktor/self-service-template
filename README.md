@@ -1,6 +1,18 @@
 # Conduktor Self-Service
 
-Federated Kafka resource management via GitOps. The **platform team** defines boundaries (applications, instances, policies); **application teams** manage their own Kafka resources within those boundaries through pull requests.
+Federated Kafka resource management via GitOps. The **platform team** defines boundaries (applications, instances, policies); **application teams** take responsibility for their own Kafka resources within those boundaries through pull requests *without the need for approval from the platform team*.
+
+In addition to mere GitOps automation for Kafka resources, Conduktor Self-Service unlocks:
+- Enforceable and reusable guardrail policies to **enforce** best practices
+- Reusable templates to **encourage** best practices
+- Clear data ownership
+- Data product discoverability and reusability
+- Granular cost attribution / chargeback
+- Efficient multi-tenancy through governance
+
+## Bootstrap with AI
+
+Install the [Conduktor CLI](https://docs.conduktor.io/guide/conduktor-in-production/automate/cli-automation) and [Conduktor AI skill](https://github.com/conduktor/skills). Ask your favorite AI agent to bootstrap Conduktor Self-Service for you. It will scan your Conduktor Console environment and make its best guess about application boundaries in order to populate the contents of this repo.
 
 ## Key Concepts
 
