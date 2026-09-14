@@ -134,7 +134,7 @@ Before any application can be onboarded, the platform team sets up the shared in
 #### Platform team
 
 1. Create `platform/applications/<app>/application.yml` (`spec.owner` -> Console Group)
-2. Create `platform/applications/<app>/<instance>.yml` per instance (ApplicationInstance with cluster, serviceAccount, policyRef, resources)
+2. Create `platform/applications/<app>/<instance>.yml` per instance (ApplicationInstance with cluster, serviceAccount, policyRef, resources). Topic/Connector/Subject policies go in the instance's `policyRef`; ApplicationGroup policies go on the Application in step 1
 3. Create an IAM role per app/instance scoped to its state prefix (e.g., `s3://conduktor-state/<app>/<instance>/`), with OIDC trust pinned to the GitHub Environment
 4. Create GitHub Environments (`<app>-<instance>`) with:
    - `CDK_API_KEY` (secret) -- ApplicationInstanceToken
@@ -173,6 +173,8 @@ No workflow changes needed -- the detection logic handles new applications autom
 | `subject-rules` | Subject | Requires `-key` or `-value` suffix, explicit compatibility |
 | `connector-rules` | Connector | Restricts plugin classes, tasks.max <= 8 |
 | `appgroup-restrictions` | ApplicationGroup | No direct members, read-only prod topic access |
+
+**Where each policy attaches.** An ApplicationInstance's `spec.policyRef` accepts only `Topic`, `Connector` and `Subject` policies -- naming an `ApplicationGroup` policy there is rejected with `Policy with name '<name>' has ApplicationGroup but only [Connector, Topic, Subject] are allowed`. `appgroup-restrictions` is therefore referenced from `platform/applications/<app>/application.yml`, where it covers every instance of the application. `ApplicationInstancePermission` policies are cluster scoped and attach through a `KafkaCluster`'s `spec.policiesRef`.
 
 ## Getting Started
 

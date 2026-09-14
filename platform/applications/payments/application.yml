@@ -6,3 +6,5 @@ spec:
   title: "Payments"
   description: "Payment processing service"
   owner: "payments-owners" # Console Group technical-id
+  policyRef:
+    - appgroup-restrictions
