@@ -1,7 +1,7 @@
 apiVersion: kafka/v2
 kind: Topic
 metadata:
-  cluster: "my-kafka-cluster"  # Must match the ApplicationInstance cluster
+  cluster: "kafka-prod" # Must match the ApplicationInstance cluster
   name: payments.transactions
   labels:
     instance: prod

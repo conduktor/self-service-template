@@ -2,7 +2,7 @@
 apiVersion: console/v2
 kind: KafkaCluster
 metadata:
-  name: kafka-dev
+  name: kafka-prod
 spec:
   displayName: "Prod kafka cluster"
   icon: "kafka"
