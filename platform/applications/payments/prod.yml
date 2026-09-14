@@ -11,7 +11,6 @@ spec:
     - topic-labels
     - topic-rules-prod
     - subject-rules
-    - appgroup-restrictions
   defaultCatalogVisibility: PUBLIC
   resources:
     - type: TOPIC
