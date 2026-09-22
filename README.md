@@ -1,6 +1,6 @@
-# Conduktor Self-Service
+# Conduktor Self-Service (Terraform)
 
-Federated Kafka resource management via GitOps. The **platform team** defines boundaries (applications, instances, policies); **application teams** take responsibility for their own Kafka resources within those boundaries through pull requests *without the need for approval from the platform team*.
+Federated Kafka resource management via GitOps, using the [Conduktor Terraform provider](https://registry.terraform.io/providers/conduktor/conduktor/latest/docs). The **platform team** defines boundaries (applications, instances, policies); **application teams** take responsibility for their own Kafka resources within those boundaries through pull requests *without the need for approval from the platform team*.
 
 In addition to mere GitOps automation for Kafka resources, Conduktor Self-Service unlocks:
 - Enforceable and reusable guardrail policies to **enforce** best practices
@@ -10,42 +10,30 @@ In addition to mere GitOps automation for Kafka resources, Conduktor Self-Servic
 - Granular cost attribution / chargeback
 - Efficient multi-tenancy through governance
 
-## Bootstrap with AI
-
-Install the [Conduktor CLI](https://docs.conduktor.io/guide/conduktor-in-production/automate/cli-automation) and [Conduktor AI skill](https://github.com/conduktor/skills). Ask your favorite AI agent to bootstrap Conduktor Self-Service for you. It will scan your Conduktor Console environment and make its best guess about application boundaries in order to populate the contents of this repo.
+> **Looking for the CLI version?** The `main` branch of this template manages the same resources with `conduktor apply` and YAML manifests. Pick that one unless you have a specific reason to want Terraform — see [Terraform vs. the Conduktor CLI](#terraform-vs-the-conduktor-cli) for an honest comparison.
 
 ## Key Concepts
 
-Before diving in, understand the Conduktor self-service resource hierarchy:
+Before diving in, understand the Conduktor self-service resource hierarchy. Each concept maps 1:1 to a Terraform resource:
 
-1. **[KafkaCluster](https://docs.conduktor.io/guide/reference/console-reference#kafkacluster) / [KafkaConnectCluster](https://docs.conduktor.io/guide/reference/console-reference#kafkaconnectcluster)** -- defines the Kafka and Kafka Connect endpoints (bootstrap servers, Schema Registry, credentials) that ApplicationInstances bind to (platform team resource)
-2. **[Group](https://docs.conduktor.io/guide/reference/console-reference#group)** -- a Console Group, maps an external IdP group to Console and is referenced as `spec.owner` on an Application (platform team resource)
-3. **[Application](https://docs.conduktor.io/guide/reference/self-service-reference#application)** -- a logical grouping representing a team or service (platform team resource)
-4. **[ApplicationInstance](https://docs.conduktor.io/guide/reference/self-service-reference#applicationinstance)** -- links an Application to a specific Kafka cluster/environment, defines ownership, and creates service account and user permissions (platform team resource)
-5. **[ResourcePolicy](https://docs.conduktor.io/guide/reference/self-service-reference#resourcepolicy)** -- CEL-based validation rules enforced at apply time (platform team resource)
-6. **[ApplicationInstancePermission](https://docs.conduktor.io/guide/reference/self-service-reference#applicationinstancepermission)** -- grants another application instance access to your topics, enabling cross-team collaboration (app-managed resource)
-7. **[ApplicationGroup](https://docs.conduktor.io/guide/reference/self-service-reference#applicationgroup)** -- defines Console UI permissions for team members within an application (app-managed resource)
-8. **[Topic](https://docs.conduktor.io/guide/reference/kafka-reference#topic), [Subject](https://docs.conduktor.io/guide/reference/kafka-reference#subject), [Connector](https://docs.conduktor.io/guide/reference/kafka-reference#connector)** -- the actual Kafka resources teams manage day-to-day (app-managed resources)
+| # | Concept | Terraform resource | Owner |
+|---|---|---|---|
+| 1 | [KafkaCluster](https://docs.conduktor.io/guide/reference/console-reference#kafkacluster) / [KafkaConnectCluster](https://docs.conduktor.io/guide/reference/console-reference#kafkaconnectcluster) -- Kafka and Kafka Connect endpoints that ApplicationInstances bind to | `conduktor_console_kafka_cluster_v2`, `conduktor_console_kafka_connect_v2` | Platform |
+| 2 | [Group](https://docs.conduktor.io/guide/reference/console-reference#group) -- maps an external IdP group to Console, referenced as `spec.owner` on an Application | `conduktor_console_group_v2` | Platform |
+| 3 | [Application](https://docs.conduktor.io/guide/reference/self-service-reference#application) -- a logical grouping representing a team or service | `conduktor_console_application_v1` | Platform |
+| 4 | [ApplicationInstance](https://docs.conduktor.io/guide/reference/self-service-reference#applicationinstance) -- links an Application to a cluster/environment, defines ownership, creates the service account and permissions | `conduktor_console_application_instance_v1` | Platform |
+| 5 | [ResourcePolicy](https://docs.conduktor.io/guide/reference/self-service-reference#resourcepolicy) -- CEL-based validation rules enforced at apply time | `conduktor_console_resource_policy_v1` | Platform |
+| 6 | [ApplicationInstancePermission](https://docs.conduktor.io/guide/reference/self-service-reference#applicationinstancepermission) -- grants another application instance access to your topics | `conduktor_console_application_instance_permission_v1` | App team |
+| 7 | [ApplicationGroup](https://docs.conduktor.io/guide/reference/self-service-reference#applicationgroup) -- Console UI permissions for team members within an application | `conduktor_console_application_group_v1` | App team |
+| 8 | [Topic](https://docs.conduktor.io/guide/reference/kafka-reference#topic), [Subject](https://docs.conduktor.io/guide/reference/kafka-reference#subject), [Connector](https://docs.conduktor.io/guide/reference/kafka-reference#connector) -- the Kafka resources teams manage day-to-day | `conduktor_console_topic_v2`, `conduktor_console_kafka_subject_v2`, `conduktor_console_connector_v2` | App team |
 
-Platform team resources (`KafkaCluster`, `KafkaConnectCluster`, `Group`, `Application`, `ApplicationInstance`, `ResourcePolicy`) are managed exclusively by the platform team. Application teams manage their own Kafka resources within the boundaries the platform team has defined.
+Platform team resources are managed exclusively by the platform team. Application teams manage their own Kafka resources within the boundaries the platform team has defined.
 
-> **Note on terminology:** `Group` (kind `Group`, `apiVersion: v2`) and `ApplicationGroup` (kind `ApplicationGroup`, `apiVersion: self-serve/v1`) are distinct resource kinds. A `Group` is a platform-managed resource that grants UI permissions to a set of users; an `ApplicationGroup` is an app-managed resource that grants UI permissions to a set of users scoped within the application.
-
-All resources follow a Kubernetes-style declarative format:
-
-```yaml
-apiVersion: self-serve/v1   # Applications, ApplicationInstances, ResourcePolicies, ApplicationGroups
-# also: kafka/v2 (Topics/Subjects/Connectors), console/v2 (Clusters), iam/v2 (Groups)
-kind: <ResourceKind>
-metadata:
-  name: resource-name
-  labels:
-    key: value
-spec:
-  # Resource-specific fields
-```
+> **Note on terminology:** `Group` and `ApplicationGroup` are distinct. A `Group` is a platform-managed resource granting UI permissions to a set of users; an `ApplicationGroup` is an app-managed resource granting UI permissions scoped within the application.
 
 ## Repository Structure
+
+Terraform does not recurse into subdirectories, so **each state boundary is its own root module** -- a directory containing its own backend, provider and resources, applied independently.
 
 ```
 conduktor-self-service/
@@ -57,36 +45,38 @@ conduktor-self-service/
 │       └── apply-apps.yml          # ApplicationInstanceToken -- scoped per app/instance
 ├── applications/                   # App-managed resources (each team owns their folder)
 │   └── <app>/
-│       └── <instance>/
-│           ├── topics.yml
-│           ├── subjects.yml
-│           ├── connectors.yml
-│           ├── application-groups.yml       # Grant UI permissions
-│           └── instance-permissions.yml     # Grant access to another application
-├── platform/                       # Platform team resources only
-│   ├── applications/
-│   │   └── <app>/
-│   │       ├── application.yml     # Application resource assigns ownership to Console Group
-│   │       └── <instance>.yml      # ApplicationInstance per instance assigns permissions to a service account
-│   ├── clusters/                   # KafkaCluster / KafkaConnectCluster definitions
-│   │   └── <instance>/             # Applied with instance-scoped cluster credentials
-│   ├── groups/                     # Console Groups (map external IdP groups -> Console)
-│   ├── policies/                   # ResourcePolicy rules
-│   └── exceptions/                 # Policy exception overrides
-│       └── <app>/<instance>/       # Applied with AdminToken to bypass policies
+│       └── <instance>/             # ← root module
+│           ├── main.tf             # backend, provider, cluster/instance variables
+│           ├── topics.tf
+│           ├── subjects.tf
+│           ├── connectors.tf
+│           ├── application-groups.tf       # Grant UI permissions
+│           └── instance-permissions.tf     # Grant access to another application
+├── platform/                       # ← root module (platform team resources only)
+│   ├── main.tf                     # backend, provider
+│   ├── groups.tf                   # Console Groups (map external IdP groups → Console)
+│   ├── policies.tf                 # ResourcePolicy rules
+│   ├── application-<app>.tf        # Application + ApplicationInstance per app
+│   ├── exceptions.tf               # Policy exception overrides (AdminToken bypasses policies)
+│   └── clusters/
+│       └── <instance>/             # ← root module, applied with instance-scoped credentials
+│           ├── main.tf
+│           ├── variables.tf
+│           └── kafka-<instance>.tf
+├── scripts/
+│   └── plan-to-manifests.py        # Renders a plan into manifests for the PR policy check
 └── README.md
 ```
 
-| Directory | Owner | Token Type | Purpose |
+| Root module | Owner | Token Type | Purpose |
 |---|---|---|---|
-| `platform/applications/` | Platform team | AdminToken | Application and ApplicationInstance definitions |
-| `platform/clusters/<instance>/` | Platform team | AdminToken | KafkaCluster / KafkaConnectCluster definitions per instance |
-| `platform/groups/` | Platform team | AdminToken | Console Groups mapped from external IdP groups |
-| `platform/policies/` | Platform team | AdminToken | ResourcePolicy rules |
-| `platform/exceptions/` | Platform team (approver), App team (author) | AdminToken | Policy exception overrides |
+| `platform/` | Platform team | AdminToken | Applications, ApplicationInstances, Groups, ResourcePolicies, exceptions |
+| `platform/clusters/<instance>/` | Platform team | AdminToken | KafkaCluster / KafkaConnectCluster per instance |
 | `applications/<app>/<instance>/` | Application team | ApplicationInstanceToken | Day-to-day Kafka resources |
 
-**About the `<instance>` folder slot:** Throughout this repo, an `<instance>` folder corresponds 1:1 to a Self-Service `ApplicationInstance`. Each application instance maps to a distinct Kafka cluster binding, service account, permission set, and (often) resource policy.
+**Why `platform/` is flat.** `platform/groups.tf`, `policies.tf` and `application-<app>.tf` were separate directories in the CLI version. They are one root module here because the CLI applied them together under one state; splitting them would fragment that state for no benefit. `platform/clusters/<instance>/` stays nested because it always had its own state and credentials. Nested root modules are fine -- Terraform only reads the directory it is invoked from.
+
+**About the `<instance>` folder slot:** an `<instance>` folder corresponds 1:1 to a Self-Service `ApplicationInstance`. Each maps to a distinct Kafka cluster binding, service account, permission set, and (often) resource policy.
 The repo ships with `dev` and `prod` as example instance names, but `dev`/`stag`/`prod` is only the most familiar axis. Other dimensions that often warrant their own application instance:
 - **Region / data residency** -- `prod-us-east`, `prod-eu-west`, `prod-ap-south` (latency, active-active DR, or laws that pin data to a region)
 - **Data classification** -- `pii` vs `non-pii`, where PII workloads land on a cluster with tighter ACLs and encryption
@@ -97,61 +87,99 @@ The repo ships with `dev` and `prod` as example instance names, but `dev`/`stag`
 
 ## How CI/CD Works
 
-- **Pull requests** run `conduktor apply --dry-run` against the live Console instance. Policy violations surface before merge.
-- **Merges to main** apply resources automatically. Three workflows split the work by scope:
-  - `apply-platform.yml` -- AdminToken, `platform` GitHub Environment, applies everything under `platform/` *except* `platform/clusters/`.
-  - `apply-clusters.yml` -- AdminToken, per-instance GitHub Environments (e.g. `kafka-dev`, `kafka-prod`). Detects the changed `platform/clusters/<instance>/` folder and selects the matching environment so cluster credentials (`KAFKA_BOOTSTRAP_SERVERS`, `KAFKA_CREDENTIALS`, Schema Registry, Kafka Connect) resolve correctly. Changes must be scoped to a single instance per PR.
+- **Pull requests** run `terraform plan`. For application resources they additionally run a **policy check** (see below).
+- **Merges to main** run `terraform apply`. Three workflows split the work by scope:
+  - `apply-platform.yml` -- AdminToken, `platform` GitHub Environment, root module `platform/`.
+  - `apply-clusters.yml` -- AdminToken, per-instance GitHub Environments (e.g. `kafka-dev`, `kafka-prod`). Detects the changed `platform/clusters/<instance>/` folder and selects the matching environment so cluster credentials resolve correctly. Changes must be scoped to a single instance per PR.
   - `apply-apps.yml` -- ApplicationInstanceToken, detects the changed `<app>/<instance>` folder and selects the matching GitHub Environment for a scoped token. Changes must be scoped to a single `<app>/<instance>` per PR.
-- **Policy exceptions** go in `platform/exceptions/<app>/<instance>/`. The platform workflow applies them with an AdminToken, bypassing policy validation. Application teams open the PR; only the platform team can approve (CODEOWNERS).
-- **State management** is enabled via `--enable-state`. Resources removed from YAML are deleted from Conduktor on the next apply. Each app/instance has an isolated state file (see State Isolation below).
+- **Policy exceptions** go in `platform/exceptions.tf`. That module applies with an AdminToken, and Console skips ResourcePolicy validation for admin tokens. Application teams open the PR; only the platform team can approve (CODEOWNERS).
+- **State management** is native. Resources removed from `.tf` files are destroyed on the next apply -- there is no `--enable-state` flag to set.
+
+### The PR policy check
+
+**`terraform plan` cannot catch ResourcePolicy violations.** Conduktor evaluates CEL rules server-side when a resource is written; `plan` only diffs your config against state and never asks Console whether the resource would be accepted. A topic with 50 partitions plans perfectly cleanly against a policy that caps it at 3.
+
+Left alone, that would move policy failures from "PR is red" to "main is red and Console is out of sync" -- losing the guardrail that is the point of Self-Service. So `apply-apps.yml` adds a step:
+
+```bash
+terraform show -json tfplan > plan.json
+scripts/plan-to-manifests.py plan.json > manifests.yml
+conduktor apply -f manifests.yml --dry-run     # real server-side CEL evaluation
+```
+
+`plan-to-manifests.py` extracts the four kinds that ResourcePolicies can target (Topic, Subject, Connector, ApplicationGroup) from the plan and renders them as Conduktor manifests. The dry-run returns the real policy verdict, exiting non-zero with the offending policy name and error message:
+
+```
+Could not apply resource Topic/payments.transactions: Policies check failed:
+- topic-rules-dev: Partition count has to be between 1 and 3
+```
+
+The platform workflows deliberately have **no** such step: they apply with an AdminToken, which bypasses ResourcePolicy anyway.
 
 ### State Isolation
 
-State isolation applies to **every** workflow. The `platform`, each `kafka-<instance>`, and each `<app>-<instance>` GitHub Environment carries its own `CDK_STATE_REMOTE_URI` (a distinct remote state prefix) and its own `AWS_ROLE_ARN` (an IAM role scoped to that prefix). One workflow's state cannot be read or written by another.
+State isolation applies to **every** root module. The `platform`, each `kafka-<instance>`, and each `<app>-<instance>` GitHub Environment carries its own `CDK_STATE_REMOTE_URI` (a distinct S3 prefix) and its own `AWS_ROLE_ARN` (an IAM role scoped to that prefix). One workflow's state cannot be read or written by another.
 
 The workflows use GitHub OIDC federation (`aws-actions/configure-aws-credentials` with `role-to-assume`) -- no static AWS keys. Each IAM role's trust policy is pinned to its corresponding GitHub Environment.
+
+The S3 backend uses `use_lockfile = true` for native state locking, so **no DynamoDB table is required** (Terraform >= 1.10). CI parses `CDK_STATE_REMOTE_URI` into the backend's `bucket` and `key` at `terraform init` time via `-backend-config`, which is why the `backend "s3"` blocks in this repo are intentionally near-empty.
+
+**Cross-boundary references are literal strings, not remote state.** An ApplicationInstance names its cluster as `cluster = "kafka-dev"`, not via a `terraform_remote_state` data source. This is deliberate: a data source would require every application team's IAM role to have read access to the platform state, undermining the isolation above. The cost is that renaming a cluster requires a matching edit in the modules that reference it.
 
 ## Onboarding
 
 ### Platform bootstrap (one-time)
 
-Before any application can be onboarded, the platform team sets up the shared infrastructure:
-
-1. Create `platform/clusters/<instance>/*.yml` for each Kafka cluster and Kafka Connect cluster the platform will manage. Use the placeholder `${VAR}` syntax for credentials -- values come from GH Environment secrets at apply time.
-2. Create `platform/groups/*.yml` for each Console `Group` that mirrors an external IdP group. These are referenced by Applications via `spec.owner`.
-3. Seed `platform/policies/` with the ResourcePolicies you want enforced on topics, subjects, connectors, and application-groups. A default set ships with this repo (see "Included Resource Policies" below).
-4. Create the `platform` GitHub Environment with:
+1. Create `platform/clusters/<instance>/` for each Kafka cluster the platform will manage. Credentials come from GH Environment secrets as `TF_VAR_*` -- see `variables.tf`.
+2. Add Console `Group` resources to `platform/groups.tf`, one per external IdP group. These are referenced by Applications via `spec.owner`.
+3. Seed `platform/policies.tf` with the ResourcePolicies you want enforced. A default set ships with this repo (see "Included Resource Policies" below).
+4. Create an S3 bucket for Terraform state, plus one IAM role per boundary scoped to its prefix, each with an OIDC trust policy pinned to its GitHub Environment.
+5. Create the `platform` GitHub Environment with:
    - `CDK_API_KEY` (secret) -- AdminToken
    - `CDK_BASE_URL` (variable) -- Console URL
    - `CDK_STATE_REMOTE_URI` (variable) -- e.g., `s3://conduktor-state/platform/`
-   - `AWS_ROLE_ARN` (variable) -- IAM role scoped to the platform state prefix, OIDC trust pinned to this environment
-5. Create a `kafka-<instance>` GitHub Environment for each cluster instance (at minimum `kafka-dev`, `kafka-prod`) with:
-   - `CDK_API_KEY`, `CDK_BASE_URL`, `CDK_STATE_REMOTE_URI`, `AWS_ROLE_ARN` as above, scoped to that instance's state prefix and IAM role
+   - `AWS_ROLE_ARN` (variable) -- IAM role scoped to the platform state prefix
+6. Create a `kafka-<instance>` GitHub Environment for each cluster instance (at minimum `kafka-dev`, `kafka-prod`) with:
+   - `CDK_API_KEY`, `CDK_BASE_URL`, `CDK_STATE_REMOTE_URI`, `AWS_ROLE_ARN` as above, scoped to that instance
    - Cluster credential secrets: `KAFKA_BOOTSTRAP_SERVERS`, `KAFKA_CREDENTIALS`, `SR_USER`, `SR_PASSWORD`, `KAFKA_CONNECT_URL`, `KAFKA_CONNECT_USERNAME`, `KAFKA_CONNECT_PASSWORD`
 
 ### Onboard a new application
 
 #### Platform team
 
-1. Create `platform/applications/<app>/application.yml` (`spec.owner` -> Console Group)
-2. Create `platform/applications/<app>/<instance>.yml` per instance (ApplicationInstance with cluster, serviceAccount, policyRef, resources). Topic/Connector/Subject policies go in the instance's `policyRef`; ApplicationGroup policies go on the Application in step 1
-3. Create an IAM role per app/instance scoped to its state prefix (e.g., `s3://conduktor-state/<app>/<instance>/`), with OIDC trust pinned to the GitHub Environment
-4. Create GitHub Environments (`<app>-<instance>`) with:
-   - `CDK_API_KEY` (secret) -- ApplicationInstanceToken
+1. Create `platform/application-<app>.tf` with the `conduktor_console_application_v1` (its `spec.owner` referencing a Group) and one `conduktor_console_application_instance_v1` per instance. Topic/Connector/Subject policies go in the instance's `policy_ref`; ApplicationGroup policies go on the Application
+2. Create an IAM role per app/instance scoped to its state prefix (e.g. `s3://conduktor-state/<app>/<instance>/`), with OIDC trust pinned to the GitHub Environment
+3. Create GitHub Environments (`<app>-<instance>`) with:
+   - `CDK_API_KEY` (secret) -- ApplicationInstanceToken, from `conduktor token create application-instance -i <instance> <name>`
    - `CDK_BASE_URL` (variable) -- Console URL
    - `CDK_STATE_REMOTE_URI` (variable) -- e.g., `s3://conduktor-state/<app>/<instance>/`
-   - `AWS_ROLE_ARN` (variable) -- the IAM role from step 3
+   - `AWS_ROLE_ARN` (variable) -- the IAM role from step 2
+4. Scaffold `applications/<app>/<instance>/main.tf` (copy from `applications/payments/dev/main.tf`, adjusting the `cluster` and `app_instance` defaults)
 5. Add CODEOWNERS entry: `/applications/<app>/  @org/<app>-team @org/platform-team`
 6. Grant the team repo write access
 
 #### Application team
 
-1. Create `applications/<app>/<instance>/topics.yml` with [Topics](https://docs.conduktor.io/guide/reference/kafka-reference#topic) matching the ApplicationInstance resource prefix (also include [Subjects](https://docs.conduktor.io/guide/reference/kafka-reference#subject) and [Connectors](https://docs.conduktor.io/guide/reference/kafka-reference#connector) as needed)
-2. Add `application-groups.yml` to set up Console UI permissions
-3. Add `instance-permissions.yml` if cross-team topic access is needed
-4. Open a PR -- dry-run validates against policies. After review and merge, resources apply automatically.
+1. Add [Topics](https://docs.conduktor.io/guide/reference/kafka-reference#topic) to `applications/<app>/<instance>/topics.tf`, matching the ApplicationInstance resource prefix (also [Subjects](https://docs.conduktor.io/guide/reference/kafka-reference#subject) and [Connectors](https://docs.conduktor.io/guide/reference/kafka-reference#connector) as needed)
+2. Add `application-groups.tf` to set up Console UI permissions
+3. Add `instance-permissions.tf` if cross-team topic access is needed
+4. Open a PR -- `terraform plan` plus the dry-run policy check validate the change. After review and merge, resources apply automatically.
 
 No workflow changes needed -- the detection logic handles new applications automatically.
+
+## Working Locally
+
+```bash
+export CDK_BASE_URL="https://console.example.com"
+export CDK_API_KEY="<your token>"
+
+cd applications/payments/dev
+terraform init -backend=false      # skip remote state for a local syntax check
+terraform validate
+terraform fmt -check -recursive
+```
+
+To plan against real state you need the backend config and AWS credentials that CI uses; in practice, let the PR do it.
 
 ## Labels Convention
 
@@ -174,17 +202,24 @@ No workflow changes needed -- the detection logic handles new applications autom
 | `connector-rules` | Connector | Restricts plugin classes, tasks.max <= 8 |
 | `appgroup-restrictions` | ApplicationGroup | No direct members, read-only prod topic access |
 
-**Where each policy attaches.** An ApplicationInstance's `spec.policyRef` accepts only `Topic`, `Connector` and `Subject` policies -- naming an `ApplicationGroup` policy there is rejected with `Policy with name '<name>' has ApplicationGroup but only [Connector, Topic, Subject] are allowed`. `appgroup-restrictions` is therefore referenced from `platform/applications/<app>/application.yml`, where it covers every instance of the application. `ApplicationInstancePermission` policies are cluster scoped and attach through a `KafkaCluster`'s `spec.policiesRef`.
+CEL conditions are written as HCL heredocs. HCL heredocs do not process backslash escapes, so regex escaping (`\\.`) carries over from the YAML form verbatim.
 
-## Getting Started
+**Where each policy attaches.** An ApplicationInstance's `policy_ref` accepts only `Topic`, `Connector` and `Subject` policies -- naming an `ApplicationGroup` policy there is rejected with `Policy with name '<name>' has ApplicationGroup but only [Connector, Topic, Subject] are allowed`. `appgroup-restrictions` is therefore referenced from the `conduktor_console_application_v1` resource, where it covers every instance of the application. `ApplicationInstancePermission` policies are cluster scoped and attach through a KafkaCluster's `policies_ref`.
 
-1. Adjust the shipped YAML files to match your Console environment:
-   - `platform/clusters/<instance>/*.yml` -- set `metadata.name`, `spec.displayName`, `spec.bootstrapServers`, Schema Registry URL, Kafka Connect URL, and `policiesRef` (if any). Leave the `${VAR}` placeholders in place -- those are filled from GH Environment secrets at apply time.
-   - `platform/groups/*.yml` -- set `metadata.name`, `spec.displayName`, and `spec.externalGroups` to match your IdP group names.
-   - `platform/applications/<app>/*.yml` -- set `spec.owner` to a Console Group name, `spec.cluster` to a `KafkaCluster` name, and adjust `resources` prefixes to your naming convention.
-2. Replace `@org/platform-team` and `@org/payments-owners` in CODEOWNERS with your GitHub org/team slugs.
-3. Set up the `platform`, `kafka-<instance>`, and `<app>-<instance>` GitHub Environments with the required secrets and variables (see Platform bootstrap and Onboard a new application).
-4. Push to GitHub and enable branch protection on `main` with required reviews and CODEOWNERS enforcement.
+## Terraform vs. the Conduktor CLI
+
+Both approaches manage the same Console resources. Choose deliberately:
+
+| | Terraform (this branch) | Conduktor CLI (`main`) |
+|---|---|---|
+| Pre-merge policy feedback | Requires the extra dry-run step in `apply-apps.yml` | Native -- `conduktor apply --dry-run` |
+| State | Terraform state in S3, one per boundary | `--enable-state` with a remote URI per boundary |
+| Drift detection | `terraform plan` shows drift from real Console state | Not available |
+| Deletion on removal | Native | `--enable-state` |
+| Resource coverage | Every kind this repo uses has a typed resource; anything newer needs `conduktor_generic` | Whatever the API supports, immediately |
+| Fits existing IaC | Plans alongside your other Terraform | Separate tool in the pipeline |
+
+Pick Terraform if your organisation already standardises on it and values drift detection. Pick the CLI if you want the simplest pipeline and native policy dry-runs.
 
 ## Repository Layout Options
 
@@ -192,12 +227,10 @@ This repo co-locates platform resources and application resources in a single re
 
 ## Note on Deployment
 
-This repo only governs objects within the Conduktor [Console](https://docs.conduktor.io/guide/reference/console-reference), [Self-Service](https://docs.conduktor.io/guide/reference/self-service-reference), and [Kafka Resource](https://docs.conduktor.io/guide/reference/kafka-reference) APIs using the `conduktor` CLI. This repo does not concern itself with configuration and deployment of Conduktor Console itself.
+This repo only governs objects within the Conduktor [Console](https://docs.conduktor.io/guide/reference/console-reference), [Self-Service](https://docs.conduktor.io/guide/reference/self-service-reference), and [Kafka Resource](https://docs.conduktor.io/guide/reference/kafka-reference) APIs. It does not concern itself with configuration and deployment of Conduktor Console itself.
 
-Also note that for the sake of simplicity, this repo doesn't currently include objects from the [Conduktor Gateway API](https://docs.conduktor.io/guide/reference/gateway-reference) but can be easily extended to do so.
+For the sake of simplicity this repo doesn't include objects from the [Conduktor Gateway API](https://docs.conduktor.io/guide/reference/gateway-reference), but can be extended to do so -- the provider ships `conduktor_gateway_*` resources. Managing both Console and Gateway in one root module requires two `provider` blocks with `alias` and `mode = "gateway"` on the second.
 
-As an alternative approach to implement Conduktor API resource gitops, you can use the [Conduktor Provisioner helm chart](https://github.com/conduktor/conduktor-public-charts/tree/main/charts/provisioner) to provision API object resources from within your Kubernetes cluster. This helm chart is sometimes helpful if networking restrictions prevent the CI runners from reaching the API endpoint directly. It runs the Conduktor CLI from a pod in Kubernetes.
-
-Another alternative approach to implement Conduktor API resource gitops is to use the [Conduktor Terraform Provider](https://registry.terraform.io/providers/conduktor/conduktor/latest/docs) to provision API object resources via Terraform. This will require some changes to the GitHub Actions workflows since terraform has its own state management.
+As an alternative to Terraform, the [Conduktor Provisioner helm chart](https://github.com/conduktor/conduktor-public-charts/tree/main/charts/provisioner) runs the Conduktor CLI from a pod in Kubernetes -- helpful if networking restrictions prevent CI runners from reaching the API endpoint directly.
 
 To actually configure and deploy Conduktor Console itself, we recommend the [official Conduktor Console Kubernetes helm chart](https://github.com/conduktor/conduktor-public-charts/tree/main/charts/console). See the official [Conduktor Reference Architecture Console helm values](https://github.com/conduktor/conduktor-reference-architecture/blob/main/local-stack/console-values.yaml) for a production-ready Console deployment configuration example.

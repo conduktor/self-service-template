@@ -10,6 +10,10 @@ permissions:
   id-token: write
   contents: read
 
+env:
+  AWS_REGION: us-east-1
+  TF_IN_AUTOMATION: "1"
+
 jobs:
   detect:
     runs-on: ubuntu-latest
@@ -63,6 +67,9 @@ jobs:
     needs: detect
     runs-on: ubuntu-latest
     environment: ${{ needs.detect.outputs.app }}-${{ needs.detect.outputs.instance }}
+    defaults:
+      run:
+        working-directory: applications/${{ needs.detect.outputs.app }}/${{ needs.detect.outputs.instance }}
     steps:
       - uses: actions/checkout@v4
 
@@ -71,20 +78,56 @@ jobs:
           role-to-assume: ${{ vars.AWS_ROLE_ARN }}
           aws-region: us-east-1
 
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.13.1
+          terraform_wrapper: false
+
       - name: Install Conduktor CLI
         run: |
           curl -sL https://github.com/conduktor/ctl/releases/latest/download/conduktor-linux-amd64 -o conduktor
           chmod +x conduktor
           sudo mv conduktor /usr/local/bin/
 
-      - name: ${{ github.event_name == 'pull_request' && 'Plan' || 'Apply' }} resources
+      - name: Terraform init
         run: |
-          conduktor apply \
-            -f "applications/${{ needs.detect.outputs.app }}/${{ needs.detect.outputs.instance }}" \
-            --parallelism 5 \
-            --enable-state \
-            ${{ github.event_name == 'pull_request' && '--dry-run' || '' }}
+          URI="${{ vars.CDK_STATE_REMOTE_URI }}"
+          REST="${URI#s3://}"
+          BUCKET="${REST%%/*}"
+          PREFIX="${REST#"$BUCKET"}"; PREFIX="${PREFIX#/}"; PREFIX="${PREFIX%/}"
+          KEY="${PREFIX:+$PREFIX/}terraform.tfstate"
+          echo "Backend: bucket=$BUCKET key=$KEY"
+          terraform init -input=false \
+            -backend-config="bucket=$BUCKET" \
+            -backend-config="key=$KEY" \
+            -backend-config="region=$AWS_REGION"
+
+      - name: Terraform plan
+        run: terraform plan -input=false -no-color -out=tfplan
         env:
-          CDK_API_KEY: ${{ secrets.CDK_API_KEY }}
           CDK_BASE_URL: ${{ vars.CDK_BASE_URL }}
-          CDK_STATE_REMOTE_URI: ${{ vars.CDK_STATE_REMOTE_URI }}
+          CDK_API_KEY: ${{ secrets.CDK_API_KEY }}
+
+      # `terraform plan` is client-side: it never asks Console whether a
+      # resource would be accepted, so ResourcePolicy (CEL) violations do not
+      # surface until apply. Render the planned resources back to Conduktor
+      # manifests and dry-run them for a real server-side verdict pre-merge.
+      - name: Policy check (conduktor dry-run)
+        run: |
+          terraform show -json tfplan > plan.json
+          "$GITHUB_WORKSPACE/scripts/plan-to-manifests.py" plan.json > manifests.yml
+          if [ ! -s manifests.yml ]; then
+            echo "No policy-targetable resources changed; skipping dry-run."
+            exit 0
+          fi
+          conduktor apply -f manifests.yml --dry-run
+        env:
+          CDK_BASE_URL: ${{ vars.CDK_BASE_URL }}
+          CDK_API_KEY: ${{ secrets.CDK_API_KEY }}
+
+      - name: Terraform apply
+        if: github.event_name != 'pull_request'
+        run: terraform apply -input=false -no-color -auto-approve tfplan
+        env:
+          CDK_BASE_URL: ${{ vars.CDK_BASE_URL }}
+          CDK_API_KEY: ${{ secrets.CDK_API_KEY }}

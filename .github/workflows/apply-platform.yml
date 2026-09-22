@@ -12,10 +12,17 @@ permissions:
   id-token: write
   contents: read
 
+env:
+  AWS_REGION: us-east-1
+  TF_IN_AUTOMATION: "1"
+
 jobs:
   apply-platform:
     runs-on: ubuntu-latest
     environment: platform
+    defaults:
+      run:
+        working-directory: platform
     steps:
       - uses: actions/checkout@v4
 
@@ -24,20 +31,37 @@ jobs:
           role-to-assume: ${{ vars.AWS_ROLE_ARN }}
           aws-region: us-east-1
 
-      - name: Install Conduktor CLI
-        run: |
-          curl -sL https://github.com/conduktor/ctl/releases/latest/download/conduktor-linux-amd64 -o conduktor
-          chmod +x conduktor
-          sudo mv conduktor /usr/local/bin/
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.13.1
+          terraform_wrapper: false
 
-      - name: ${{ github.event_name == 'pull_request' && 'Plan' || 'Apply' }} platform resources
+      - name: Terraform init
         run: |
-          conduktor apply \
-            -f platform/ -r \
-            --parallelism 5 \
-            --enable-state \
-            ${{ github.event_name == 'pull_request' && '--dry-run' || '' }}
+          URI="${{ vars.CDK_STATE_REMOTE_URI }}"
+          REST="${URI#s3://}"
+          BUCKET="${REST%%/*}"
+          PREFIX="${REST#"$BUCKET"}"; PREFIX="${PREFIX#/}"; PREFIX="${PREFIX%/}"
+          KEY="${PREFIX:+$PREFIX/}terraform.tfstate"
+          echo "Backend: bucket=$BUCKET key=$KEY"
+          terraform init -input=false \
+            -backend-config="bucket=$BUCKET" \
+            -backend-config="key=$KEY" \
+            -backend-config="region=$AWS_REGION"
+
+      - name: Terraform plan
+        run: terraform plan -input=false -no-color -out=tfplan
         env:
-          CDK_API_KEY: ${{ secrets.CDK_API_KEY }}
           CDK_BASE_URL: ${{ vars.CDK_BASE_URL }}
-          CDK_STATE_REMOTE_URI: ${{ vars.CDK_STATE_REMOTE_URI }}
+          CDK_API_KEY: ${{ secrets.CDK_API_KEY }}
+
+      # No dry-run policy gate here. This workflow applies with an AdminToken,
+      # and Console skips ResourcePolicy validation for admin tokens -- that is
+      # exactly what makes platform/exceptions.tf work. Policy enforcement
+      # happens in apply-apps.yml, where the token is instance-scoped.
+      - name: Terraform apply
+        if: github.event_name != 'pull_request'
+        run: terraform apply -input=false -no-color -auto-approve tfplan
+        env:
+          CDK_BASE_URL: ${{ vars.CDK_BASE_URL }}
+          CDK_API_KEY: ${{ secrets.CDK_API_KEY }}
