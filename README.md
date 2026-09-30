@@ -10,6 +10,8 @@ In addition to mere GitOps automation for Kafka resources, Conduktor Self-Servic
 - Granular cost attribution / chargeback
 - Efficient multi-tenancy through governance
 
+> **Application resources apply on PR approval, not on merge.** Conduktor enforces ResourcePolicies when a resource is written, and `terraform plan` never writes, so a plan can't show a policy violation. Applying on approval surfaces the violation while the PR is still open. The catch: Console can briefly hold changes that `main` does not. Read [Apply on approval](#apply-on-approval) before you adopt this template. It lists the branch protection settings this depends on.
+
 > **Looking for the CLI version?** The `main` branch of this template manages the same resources with `conduktor apply` and YAML manifests. Pick that one unless you have a specific reason to want Terraform — see [Terraform vs. the Conduktor CLI](#terraform-vs-the-conduktor-cli) for an honest comparison.
 
 ## Key Concepts
@@ -63,8 +65,6 @@ conduktor-self-service/
 │           ├── main.tf
 │           ├── variables.tf
 │           └── kafka-<instance>.tf
-├── scripts/
-│   └── plan-to-manifests.py        # Renders a plan into manifests for the PR policy check
 └── README.md
 ```
 
@@ -87,34 +87,54 @@ The repo ships with `dev` and `prod` as example instance names, but `dev`/`stag`
 
 ## How CI/CD Works
 
-- **Pull requests** run `terraform plan`. For application resources they additionally run a **policy check** (see below).
-- **Merges to main** run `terraform apply`. Three workflows split the work by scope:
-  - `apply-platform.yml` -- AdminToken, `platform` GitHub Environment, root module `platform/`.
-  - `apply-clusters.yml` -- AdminToken, per-instance GitHub Environments (e.g. `kafka-dev`, `kafka-prod`). Detects the changed `platform/clusters/<instance>/` folder and selects the matching environment so cluster credentials resolve correctly. Changes must be scoped to a single instance per PR.
-  - `apply-apps.yml` -- ApplicationInstanceToken, detects the changed `<app>/<instance>` folder and selects the matching GitHub Environment for a scoped token. Changes must be scoped to a single `<app>/<instance>` per PR.
+Three workflows split the work by scope, and they apply at different points:
+
+| Workflow | Token | Pull request | Approval | Merge to main |
+|---|---|---|---|---|
+| `apply-apps.yml` | ApplicationInstanceToken | `terraform plan` | **`terraform apply`** | drift check |
+| `apply-platform.yml` | AdminToken | `terraform plan` | -- | `terraform apply` |
+| `apply-clusters.yml` | AdminToken | `terraform plan` | -- | `terraform apply` |
+
+- `apply-apps.yml` detects the changed `<app>/<instance>` folder and selects the matching GitHub Environment for a scoped token. Changes must be scoped to a single `<app>/<instance>` per PR.
+- `apply-platform.yml` uses the `platform` GitHub Environment and root module `platform/`.
+- `apply-clusters.yml` uses per-instance GitHub Environments (e.g. `kafka-dev`, `kafka-prod`). It detects the changed `platform/clusters/<instance>/` folder and selects the matching environment so cluster credentials resolve correctly. Changes must be scoped to a single instance per PR.
 - **Policy exceptions** go in `platform/exceptions.tf`. That module applies with an AdminToken, and Console skips ResourcePolicy validation for admin tokens. Application teams open the PR; only the platform team can approve (CODEOWNERS).
 - **State management** is native. Resources removed from `.tf` files are destroyed on the next apply -- there is no `--enable-state` flag to set.
 
-### The PR policy check
+### Apply on approval
 
-**`terraform plan` cannot catch ResourcePolicy violations.** Conduktor evaluates CEL rules server-side when a resource is written; `plan` only diffs your config against state and never asks Console whether the resource would be accepted. A topic with 50 partitions plans perfectly cleanly against a policy that caps it at 3.
-
-Left alone, that would move policy failures from "PR is red" to "main is red and Console is out of sync" -- losing the guardrail that is the point of Self-Service. So `apply-apps.yml` adds a step:
-
-```bash
-terraform show -json tfplan > plan.json
-scripts/plan-to-manifests.py plan.json > manifests.yml
-conduktor apply -f manifests.yml --dry-run     # real server-side CEL evaluation
-```
-
-`plan-to-manifests.py` extracts the four kinds that ResourcePolicies can target (Topic, Subject, Connector, ApplicationGroup) from the plan and renders them as Conduktor manifests. The dry-run returns the real policy verdict, exiting non-zero with the offending policy name and error message:
+**`terraform plan` cannot catch ResourcePolicy violations.** Conduktor evaluates CEL rules server-side when a resource is written, and `plan` only diffs your config against state. It never asks Console whether it would accept the resource. A topic with 50 partitions produces a clean plan against a policy that caps partitions at 3. The violation only shows up at apply:
 
 ```
-Could not apply resource Topic/payments.transactions: Policies check failed:
+Error: Client Error
+Unable to create topic, got error: Policies check failed:
 - topic-rules-dev: Partition count has to be between 1 and 3
 ```
 
-The platform workflows deliberately have **no** such step: they apply with an AdminToken, which bypasses ResourcePolicy anyway.
+If `apply-apps.yml` applied on merge, a violation would fail on `main`, after the change had already merged. So it applies when the PR is **approved**. A policy violation fails the check while the PR is still open, and the team fixes it before merging. On merge, the workflow runs `terraform plan -detailed-exitcode` to confirm Console matches what was merged. It doesn't apply again.
+
+The platform and cluster workflows keep applying on merge. They use an AdminToken, which skips ResourcePolicy (that is what makes `platform/exceptions.tf` work), so applying them earlier would catch nothing.
+
+#### What applying before merge costs
+
+Once an apply runs before merge, `main` is no longer the only record of what is in Console:
+
+- **A PR approved and then closed without merging leaves its changes in Console.** To remove them, open and approve a follow-up PR for that `<app>/<instance>`. Its apply runs against `main`'s config and deletes the leftovers.
+- **Commits pushed after approval merge without being applied** unless branch protection prevents it. The drift check on `main` fails when this happens.
+- **A policy failure can leave a PR partly applied.** Terraform applies resources independently. If one of three topics is rejected, the other two are already in Console and in state. Fix the rejected resource and approve again. The next apply only touches what's left.
+- **Any approval from someone with write access triggers the apply**, whether or not they are a CODEOWNER. The CODEOWNERS rule only affects what can merge, not what fires the workflow.
+
+#### Required branch protection on `main`
+
+This model depends on these settings. Without them, the gaps above stay open:
+
+- **Require a pull request before merging**, with at least one approval
+- **Dismiss stale pull request approvals when new commits are pushed**, and **Require approval of the most recent reviewable push**, so every commit that merges was applied at approval
+- **Require review from Code Owners**
+- **Require status checks to pass**, including the `apply` job, so a PR whose apply failed can't merge
+- **Require branches to be up to date before merging**. The workflow plans against the PR merge ref (the PR combined with the current `main`), and this keeps that ref current
+
+To limit who can trigger an apply beyond repository write access, add **required reviewers** to each `<app>-<instance>` GitHub Environment. Each apply then waits for a deployment approval from a named team.
 
 ### State Isolation
 
@@ -163,7 +183,7 @@ The S3 backend uses `use_lockfile = true` for native state locking, so **no Dyna
 1. Add [Topics](https://docs.conduktor.io/guide/reference/kafka-reference#topic) to `applications/<app>/<instance>/topics.tf`, matching the ApplicationInstance resource prefix (also [Subjects](https://docs.conduktor.io/guide/reference/kafka-reference#subject) and [Connectors](https://docs.conduktor.io/guide/reference/kafka-reference#connector) as needed)
 2. Add `application-groups.tf` to set up Console UI permissions
 3. Add `instance-permissions.tf` if cross-team topic access is needed
-4. Open a PR -- `terraform plan` plus the dry-run policy check validate the change. After review and merge, resources apply automatically.
+4. Open a PR. `terraform plan` shows the change. When a reviewer approves, the workflow applies it, and ResourcePolicy violations surface at that point. Merge once the apply check is green.
 
 No workflow changes needed -- the detection logic handles new applications automatically.
 
@@ -212,7 +232,7 @@ Both approaches manage the same Console resources. Choose deliberately:
 
 | | Terraform (this branch) | Conduktor CLI (`main`) |
 |---|---|---|
-| Pre-merge policy feedback | Requires the extra dry-run step in `apply-apps.yml` | Native -- `conduktor apply --dry-run` |
+| Pre-merge policy feedback | Apply on PR approval. Console can briefly hold changes that `main` doesn't | Native -- `conduktor apply --dry-run`, nothing written before merge |
 | State | Terraform state in S3, one per boundary | `--enable-state` with a remote URI per boundary |
 | Drift detection | `terraform plan` shows drift from real Console state | Not available |
 | Deletion on removal | Native | `--enable-state` |

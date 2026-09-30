@@ -2,7 +2,7 @@
 
 **Date:** 2026-09-22
 **Branch:** `chuck/terraform-provider`
-**Status:** Implemented
+**Status:** Implemented (policy gate revised 2026-09-30)
 
 ## Goal
 
@@ -61,29 +61,38 @@ is partial; CI parses each environment's existing `CDK_STATE_REMOTE_URI` into
 role, same isolation guarantee. `--enable-state` disappears; deletion on
 removal is native.
 
-### 5. PR policy gate: plan + rendered dry-run
+### 5. Policy gate: apply on PR approval
 
 The central problem. `terraform plan` is client-side -- it diffs config against
 state and never asks Console whether a resource would be accepted. Conduktor
 evaluates ResourcePolicy CEL rules server-side on write. So plan is green on a
 resource that apply will reject.
 
-`apply-apps.yml` therefore runs, after plan:
+`apply-apps.yml` therefore applies on `pull_request_review` (state `approved`)
+instead of on merge. A policy violation fails the apply while the PR is still
+open. On merge, it runs `terraform plan -detailed-exitcode` as a drift check
+rather than applying again.
 
-```bash
-terraform show -json tfplan > plan.json
-scripts/plan-to-manifests.py plan.json > manifests.yml
-conduktor apply -f manifests.yml --dry-run
-```
+Platform and cluster workflows keep apply-on-merge: they use an AdminToken,
+which bypasses ResourcePolicy, so applying earlier would catch nothing and only
+add drift risk.
 
-`plan-to-manifests.py` handles only the four policy-targetable kinds (Topic,
-Subject, Connector, ApplicationGroup) and only create/update actions. Console
-ResourcePolicies remain the single source of governance truth -- rejected
-alternative: mirroring the CEL rules as Rego for Conftest, which would put the
-same rule in two languages that can drift.
+Accepted costs, each mitigated in the README by required branch protection:
+Console can hold changes from a PR that was approved and then closed
+unmerged; commits pushed after approval could merge unapplied (mitigated by
+dismissing stale approvals); a policy failure leaves a PR partially applied;
+and any approver with write access triggers the apply (restrict with
+Environment required reviewers).
 
-Platform workflows get no such step: they apply with an AdminToken, which
-bypasses ResourcePolicy anyway.
+Considered and rejected:
+
+- **Render the plan to Conduktor manifests and `conduktor apply --dry-run`
+  them** (this branch's first implementation, 2026-09-22). It gives real
+  server-side feedback with nothing written before merge, but adds a bespoke
+  translation script that must track provider schema changes. Replaced
+  2026-09-30 by apply-on-approval, which needs no extra machinery.
+- **Mirror the CEL rules as Rego for Conftest.** The same rule would then live
+  in two languages that can drift.
 
 ## Resource mapping
 
@@ -123,10 +132,9 @@ not inferred:
    - `terraform plan` → clean, `Plan: 1 to add`
    - `conduktor apply --dry-run` → `Policies check failed: - topic-rules-dev: Partition count has to be between 1 and 3`
    - `terraform apply` → same failure
-4. **The gate works end-to-end.** `plan-to-manifests.py` rendered a Topic and an
-   ApplicationGroup from a real plan; dry-run passed when compliant (exit 0) and
-   caught both a 50-partition topic and a direct-member ApplicationGroup when
-   violating (exit 1), naming the offending policy each time.
+4. **Apply is where violations surface.** Item 3's `terraform apply` failure
+   is the mechanism apply-on-approval relies on. It fails with the policy name
+   and error message, so the failed check tells the PR author what to fix.
 5. **ApplicationInstanceTokens can refresh.** `terraform plan` on existing state
    with an instance-scoped token returns `Refreshing state... No changes` --
    confirming per-app-instance root modules work with scoped tokens.

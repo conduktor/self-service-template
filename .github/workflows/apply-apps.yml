@@ -1,9 +1,19 @@
 name: Apply Application Resources
+
+# Application resources are applied when a PR is APPROVED, not when it merges.
+#
+# `terraform plan` is client-side and never asks Console whether a resource
+# would be accepted, so ResourcePolicy (CEL) violations only surface on write.
+# Applying on approval moves that failure in front of the merge: a rejected
+# apply leaves the PR unmergeable instead of breaking main. See README
+# "Apply on approval" for the trade-offs and the branch protection it needs.
 on:
+  pull_request:
+    paths: ['applications/**']
+  pull_request_review:
+    types: [submitted]
   push:
     branches: [main]
-    paths: ['applications/**']
-  pull_request:
     paths: ['applications/**']
 
 permissions:
@@ -16,6 +26,8 @@ env:
 
 jobs:
   detect:
+    # Review events fire for every review; only approvals proceed.
+    if: github.event_name != 'pull_request_review' || github.event.review.state == 'approved'
     runs-on: ubuntu-latest
     outputs:
       app: ${{ steps.find.outputs.app }}
@@ -27,12 +39,12 @@ jobs:
 
       - id: find
         run: |
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
-            BASE=${{ github.event.pull_request.base.sha }}
-            HEAD=${{ github.event.pull_request.head.sha }}
-          else
+          if [ "${{ github.event_name }}" = "push" ]; then
             BASE=${{ github.event.before }}
             HEAD=${{ github.sha }}
+          else
+            BASE=${{ github.event.pull_request.base.sha }}
+            HEAD=${{ github.event.pull_request.head.sha }}
           fi
 
           TARGETS=$(git diff --name-only "$BASE" "$HEAD" -- applications/ \
@@ -40,6 +52,12 @@ jobs:
             | sort -u)
 
           if [ -z "$TARGETS" ]; then
+            # pull_request_review has no `paths` filter, so approvals of PRs
+            # that don't touch applications/ land here -- nothing to do.
+            if [ "${{ github.event_name }}" = "pull_request_review" ]; then
+              echo "Approved PR does not touch applications/; nothing to apply."
+              exit 0
+            fi
             echo "::error::No valid app/instance changes detected under applications/"
             exit 1
           fi
@@ -65,12 +83,21 @@ jobs:
 
   apply:
     needs: detect
+    if: needs.detect.outputs.app != ''
     runs-on: ubuntu-latest
     environment: ${{ needs.detect.outputs.app }}-${{ needs.detect.outputs.instance }}
+    # Queue rather than fail when two approvals for the same app/instance land
+    # together. The S3 lockfile would otherwise reject the second run.
+    concurrency:
+      group: apply-apps-${{ needs.detect.outputs.app }}-${{ needs.detect.outputs.instance }}
+      cancel-in-progress: false
     defaults:
       run:
         working-directory: applications/${{ needs.detect.outputs.app }}/${{ needs.detect.outputs.instance }}
     steps:
+      # On pull_request and pull_request_review this checks out the PR merge
+      # ref (refs/pull/N/merge) -- the PR combined with the current base
+      # branch -- so the plan doesn't destroy resources merged since branching.
       - uses: actions/checkout@v4
 
       - uses: aws-actions/configure-aws-credentials@v4
@@ -82,12 +109,6 @@ jobs:
         with:
           terraform_version: 1.13.1
           terraform_wrapper: false
-
-      - name: Install Conduktor CLI
-        run: |
-          curl -sL https://github.com/conduktor/ctl/releases/latest/download/conduktor-linux-amd64 -o conduktor
-          chmod +x conduktor
-          sudo mv conduktor /usr/local/bin/
 
       - name: Terraform init
         run: |
@@ -103,31 +124,35 @@ jobs:
             -backend-config="region=$AWS_REGION"
 
       - name: Terraform plan
+        if: github.event_name != 'push'
         run: terraform plan -input=false -no-color -out=tfplan
         env:
           CDK_BASE_URL: ${{ vars.CDK_BASE_URL }}
           CDK_API_KEY: ${{ secrets.CDK_API_KEY }}
 
-      # `terraform plan` is client-side: it never asks Console whether a
-      # resource would be accepted, so ResourcePolicy (CEL) violations do not
-      # surface until apply. Render the planned resources back to Conduktor
-      # manifests and dry-run them for a real server-side verdict pre-merge.
-      - name: Policy check (conduktor dry-run)
-        run: |
-          terraform show -json tfplan > plan.json
-          "$GITHUB_WORKSPACE/scripts/plan-to-manifests.py" plan.json > manifests.yml
-          if [ ! -s manifests.yml ]; then
-            echo "No policy-targetable resources changed; skipping dry-run."
-            exit 0
-          fi
-          conduktor apply -f manifests.yml --dry-run
+      # This is where ResourcePolicy violations surface, as
+      #   Policies check failed: - <policy>: <errorMessage>
+      # A failed apply fails the check and blocks the merge.
+      - name: Terraform apply (on approval)
+        if: github.event_name == 'pull_request_review'
+        run: terraform apply -input=false -no-color -auto-approve tfplan
         env:
           CDK_BASE_URL: ${{ vars.CDK_BASE_URL }}
           CDK_API_KEY: ${{ secrets.CDK_API_KEY }}
 
-      - name: Terraform apply
-        if: github.event_name != 'pull_request'
-        run: terraform apply -input=false -no-color -auto-approve tfplan
+      # The change was already applied at approval. On main, confirm Console
+      # matches what was merged. Exit code 2 means they diverged -- typically
+      # commits pushed after approval. Reconcile by approving a follow-up PR.
+      - name: Drift check
+        if: github.event_name == 'push'
+        run: |
+          set +e
+          terraform plan -input=false -no-color -detailed-exitcode
+          rc=$?
+          if [ "$rc" -eq 2 ]; then
+            echo "::error::main does not match Console for this app/instance. Changes were merged that were not applied at approval."
+          fi
+          exit "$rc"
         env:
           CDK_BASE_URL: ${{ vars.CDK_BASE_URL }}
           CDK_API_KEY: ${{ secrets.CDK_API_KEY }}

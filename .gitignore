@@ -13,7 +13,5 @@ override.tf.json
 .terraformrc
 terraform.rc
 
-# Artifacts produced by the CI policy-check step
+# Saved plan produced in CI
 tfplan
-plan.json
-manifests.yml

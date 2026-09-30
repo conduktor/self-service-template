@@ -55,10 +55,11 @@ jobs:
           CDK_BASE_URL: ${{ vars.CDK_BASE_URL }}
           CDK_API_KEY: ${{ secrets.CDK_API_KEY }}
 
-      # No dry-run policy gate here. This workflow applies with an AdminToken,
-      # and Console skips ResourcePolicy validation for admin tokens -- that is
-      # exactly what makes platform/exceptions.tf work. Policy enforcement
-      # happens in apply-apps.yml, where the token is instance-scoped.
+      # Applied on merge, unlike apply-apps.yml which applies on approval.
+      # This workflow uses an AdminToken, and Console skips ResourcePolicy
+      # validation for admin tokens -- that is what makes platform/exceptions.tf
+      # work -- so applying earlier would catch nothing and only risk Console
+      # drifting ahead of main.
       - name: Terraform apply
         if: github.event_name != 'pull_request'
         run: terraform apply -input=false -no-color -auto-approve tfplan
